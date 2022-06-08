@@ -8,6 +8,9 @@ from keras.applications.inception_v3 import InceptionV3
 from keras import Sequential
 from keras.layers import Flatten, Dense, Dropout
 
+n_epochs = 50
+batch_size = 16
+
 def transfer_model(base, addon):
     base.summary()
     addon.summary()
@@ -49,18 +52,42 @@ def original_augment(input_ds):
 
 def train(model, epochs):
     model.compile(optimizer="rmsprop", loss="binary_crossentropy", metrics=["accuracy"])
-    train_ds = get_data.get_dataset(get_data.train_label)
-    valid_ds = get_data.get_dataset(get_data.valid_label)
+    train_ds = get_processed_dataset(get_data.train_label, to_augment=True)
+    valid_ds = get_processed_dataset(get_data.valid_label)
     model.fit(train_ds, epochs=epochs, validation_data=valid_ds)
 
 def test(model):
-    test_ds = get_data.get_dataset(get_data.test_label)
+    test_ds = get_processed_dataset(get_data.test_label)
     eval_results = model.evaluate(test_ds, verbose=1)
     predict_results = model.predict(test_ds, verbose=1)
+    return eval_results, predict_results
+
+def preprocess(ds):
+    preprocessing_pipeline = Sequential([
+        keras.layers.Rescaling(1./255)
+        # can insert more here
+    ])
+    ds = ds.map(lambda x, y: (preprocessing_pipeline(x), y))
+    return ds
+
+def augment(ds):
+    augment_pipeline = Sequential([
+        keras.layers.RandomFlip("horizontal", seed=get_data.randomseed),
+        keras.layers.RandomRotation(0.2, seed=get_data.randomseed)
+        # can insert more here
+    ])
+    ds = ds.map(lambda x, y: (augment_pipeline(x), y))
+    return ds
+
+def get_processed_dataset(label, to_augment=False):
+    ds = get_data.get_raw_dataset(label, batch_size=batch_size)
+    ds = preprocess(ds)
+    if to_augment: ds = augment(ds)
+    return ds
 
 def main():
     model = vgg16_transfer_model((*get_data.image_size, 3))
-    train(model, 50)
+    train(model, n_epochs)
     print(test(model))
 
 if __name__ == "__main__":

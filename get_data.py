@@ -55,7 +55,7 @@ def sort_images():
     for condition in conditions:
         save_condition(condition, *train_valid_test_split(get_raw(condition)))
 
-def get_dataset(ds_label):
+def get_raw_dataset(ds_label, batch_size=32):
     dir = os.path.join(output_root, ds_label)
     return keras.preprocessing.image_dataset_from_directory(dir,
         labels="inferred",
@@ -64,7 +64,8 @@ def get_dataset(ds_label):
         color_mode="rgb",
         image_size=image_size,
         shuffle=True,
-        seed=randomseed)
+        seed=randomseed,
+        batch_size=batch_size)
 
 def main():
     sort_images()
