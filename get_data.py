@@ -1,9 +1,9 @@
 import os
 import shutil
+
 from sklearn.model_selection import train_test_split
 import tensorflow as tf
 keras = tf.keras
-# from PIL import Image
 
 randomseed = 0
 
@@ -24,11 +24,6 @@ def get_raw(condition):
     files = filter(os.path.isfile, files)
     files = filter(lambda f: f.lower().endswith(input_exts), files)
     shape = None
-    # for f in files:
-    #     with Image.open(f) as im:
-    #         im.verify()
-    #         if shape is None: shape = im.size
-    #         else: assert im.size == shape, f"In {condition}, first image is shape {shape} but {f} is shape {im.size}"
     return list(files)
 
 # The heart of the script: use sklearn's train_test_split to randomly segment the files into
@@ -50,8 +45,18 @@ def save_condition(condition, train, valid, test):
         print(f"{condition}: {ds_label}: {len(ds)} images")
     print()
 
+def reset_dir(dir, assert_exists=True):
+    if assert_exists: assert os.path.exists(dir), "Could not find output dir at "+dir
+    shutil.rmtree(dir, ignore_errors=True)
+    if os.path.exists(dir): shutil.rmtree(dir)  # Try again
+    os.mkdir(dir)
+    # for file in os.listdir(dir):
+    #     fpath = os.path.join(dir, file)
+    #     if os.path.isfile(fpath): os.remove(fpath)
+    #     else: shutil.rmtree(fpath)
+
 def sort_images():
-    assert os.path.exists(output_root), "Could not find output dir at "+output_root
+    reset_dir(output_root)
     for condition in conditions:
         save_condition(condition, *train_valid_test_split(get_raw(condition)))
 

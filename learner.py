@@ -1,27 +1,24 @@
-import get_data
 import os
+
+import get_data
+import preprocess
+from preprocess import apply_pipeline, get_preprocessed_dataset
+import base_models
+from base_models import load_base_modeled
 
 import tensorflow as tf
 keras = tf.keras
-
-from keras.applications.vgg16 import VGG16
-from keras.applications.inception_v3 import InceptionV3
 from keras import Sequential
 from keras.layers import Flatten, Dense, Dropout
 
 n_epochs = 50
-batch_size = 16
+batch_size = preprocess.batch_size
 
 def transfer_model(base, addon):
-    base.summary()
-    addon.summary()
     base.trainable = False
     model = Sequential()
     model.add(base)
     model.add(addon)
-    # inn = keras.Input(shape=input_shape)
-    # model = keras.Model(inputs = inn, outputs = addon(base(inn)))
-    model.summary()
     return model
 
 def original_addon(input_shape):
@@ -32,38 +29,31 @@ def original_addon(input_shape):
     model.add(Dense(1, activation="sigmoid"))
     return model
 
-def vgg16_base(input_shape):
-    return VGG16(include_top=False, weights="imagenet", input_shape=input_shape)
-
-def inceptionv3_base(input_shape):
-    return InceptionV3(include_top=False, weights="imagenet", input_shape=input_shape)
-
 def vgg16_transfer_model(input_shape):
-    base = vgg16_base(input_shape)
+    base = base_models.vgg16_base(input_shape)
     addon = original_addon(base.output_shape[1:])
     return transfer_model(base, addon)
 
 def inceptionv3_transfer_model(input_shape):
-    base = inceptionv3_base(input_shape)
+    base = base_models.inceptionv3_base(input_shape)
     addon = original_addon(base.output_shape[1:])
     return transfer_model(base, addon)
 
-def train(model, epochs, base_fn=None):
+def train(model, epochs, batch_size, train_ds, valid_ds, base_fn=None, steps_per_epoch=None):
     model.compile(optimizer="rmsprop", loss="binary_crossentropy", metrics=["accuracy"])
-    train_ds = get_processed_dataset(get_data.train_label, to_augment=True, shuffle=True)
-    valid_ds = get_processed_dataset(get_data.valid_label, shuffle=True)
     if base_fn is not None:
         train_ds = base_fn(train_ds)
         valid_ds = base_fn(valid_ds)
-    return model.fit(train_ds, epochs=epochs, batch_size=batch_size, validation_data=valid_ds)
+    return model.fit(train_ds, validation_data=valid_ds, epochs=epochs,
+        batch_size=batch_size, steps_per_epoch=steps_per_epoch)
 
-def test(model, base_fn=None):
-    test_ds = get_processed_dataset(get_data.test_label, shuffle=False)
+def test(model, test_ds, base_fn=None):
     if base_fn is not None:
         test_ds = base_fn(test_ds)
     eval_results = model.evaluate(test_ds, verbose=1)
     predict_results = model.predict(test_ds, verbose=1)
-    predict_results, ground_truth, file_paths = eager_evaluate_xy_pipeline(apply_pipeline(model, test_ds), make_dataset=False)
+    predict_results, ground_truth, file_paths = eager_evaluate_xy_pipeline(
+        apply_pipeline(model, test_ds), make_dataset=False)
     return {
         "history": dict(zip(model.metrics_names, eval_results)),
         "prediction": predict_results,
@@ -81,34 +71,7 @@ def print_test_results(results, threshold=0.5):
         correct = (pred < threshold) if (actual < threshold) else (pred >= threshold)
         print(f"{nicename}\t{pred:.2f}\t{'WRONG' if not correct else ''}")
 
-def apply_pipeline(pipeline, ds):
-    file_paths = ds.file_paths
-    ds = ds.map(lambda x, y: (pipeline(x), y))
-    ds.file_paths = file_paths
-    return ds
-
-def preprocess(ds):
-    return apply_pipeline(Sequential([
-        keras.layers.Rescaling(1./255)
-        # can insert more here
-    ]), ds)
-
-def augment(ds):
-    return apply_pipeline(Sequential([
-        keras.layers.RandomFlip("horizontal", seed=get_data.randomseed),
-        keras.layers.RandomRotation(0.2, seed=get_data.randomseed)
-        # can insert more here
-    ]), ds)
-
-def get_processed_dataset(label, to_augment=False, shuffle=False):
-    ds = get_data.get_raw_dataset(label, batch_size=batch_size, shuffle=shuffle)
-    file_paths = ds.file_paths
-    ds = preprocess(ds)
-    if to_augment: ds = augment(ds)
-    ds.file_paths = file_paths
-    return ds
-
-# Evaluate the lazy pipeline now such that
+# Evaluate the lazy pipeline of (inputs, ground truths) now! For input pipelines, we might do this so that:
 #   (a) we only run the full dataset through the base model once, for performance reasons, and
 #   (b) the output of the base model and the labels all correspond to the same random choices
 #       in the augmentation phase.
@@ -118,7 +81,10 @@ def eager_evaluate_xy_pipeline(ds, make_dataset=True):
     x_batches, y_batches = [], []
     batch_size = None
     n_batches = ds.cardinality().numpy()
+
     print(f"Eagerly evaluating input pipeline in {n_batches} batches:")
+    # It seems we must resort to a loop here. Hopefully the data are batched such that this isn't too bad.
+    # Parallelization options are set up where the pipeline is created.
     for i, (x_batch, y_batch) in enumerate(ds):
         x_batches.append(x_batch)
         y_batches.append(y_batch)
@@ -131,18 +97,40 @@ def eager_evaluate_xy_pipeline(ds, make_dataset=True):
     ds.file_paths = file_paths
     return ds
 
+# A demo of how our new module layout allows us to easily do transfer learning in a variety of configurations
 def main():
-    base_model = vgg16_base((*get_data.image_size, 3))
-    # We can run the base model once ahead of time for a significant speedup
-    base_fn = lambda ds: eager_evaluate_xy_pipeline(apply_pipeline(base_model, ds))
-    model = original_addon(base_model.output_shape[1:])
-    train(model, n_epochs, base_fn=base_fn)
-    results = test(model, base_fn=base_fn)
-    print_test_results(results)
+    print("Applying the original addon to cached augmentation -> VGG16 output")
+    train_ds_1 = load_base_modeled(base_models.vgg16_label, get_data.train_label)
+    valid_ds_1 = load_base_modeled(base_models.vgg16_label, get_data.valid_label)
+    test_ds_1 = load_base_modeled(base_models.vgg16_label, get_data.test_label)
+    model_1 = original_addon(train_ds_1.element_spec[0].shape[1:])
+    # Approximate only running one augmentation repetition through each epoch (see preprocess.augmentation_reps)
+    spe_1 = tf.data.experimental.cardinality(train_ds_1).numpy()/preprocess.augmentation_reps
+    train(model_1, n_epochs, batch_size, train_ds_1.repeat(), valid_ds_1, steps_per_epoch=spe_1)
+    results_1 = test(model_1, test_ds_1)
+    print_test_results(results_1)
 
-    # model = vgg16_transfer_model((*get_data.image_size, 3))
-    # train(model, n_epochs)
-    # print(test(model))
+    print("Running VGG16 once at the beginning on the fly")
+    base = base_models.vgg16_base((*get_data.image_size, 3))
+    otf_pipeline = lambda ds: eager_evaluate_xy_pipeline(apply_pipeline(base, ds))
+    # Note that in this case (which corresponds to the original), the train dataset is only passed
+    # through augmentation once, which at least partially defeats the purpose.
+    train_ds_2 = otf_pipeline(get_preprocessed_dataset(get_data.train_label, to_augment=True, shuffle=True))
+    valid_ds_2 = otf_pipeline(get_preprocessed_dataset(get_data.valid_label, shuffle=True))
+    test_ds_2 = otf_pipeline(get_preprocessed_dataset(get_data.test_label, shuffle=False))
+    model_2 = original_addon(train_ds_2.element_spec[0].shape[1:])
+    train(model_2, n_epochs, batch_size, train_ds_2, valid_ds_2)
+    results_2 = test(model_2, test_ds_2)
+    print_test_results(results_2)
+
+    print("Running everything at all times")
+    model_3 = vgg16_transfer_model((*get_data.image_size, 3))
+    train_ds_3 = get_preprocessed_dataset(get_data.train_label, to_augment=True, shuffle=True)
+    valid_ds_3 = get_preprocessed_dataset(get_data.valid_label, shuffle=True)
+    test_ds_3 = get_preprocessed_dataset(get_data.test_label, shuffle=False)
+    train(model_3, n_epochs, batch_size, train_ds_3, valid_ds_3)
+    results_3 = test(model_3, test_ds_3)
+    print_test_results(results_3)
 
 if __name__ == "__main__":
     main()
