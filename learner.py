@@ -12,6 +12,8 @@ keras = tf.keras
 from keras import Sequential
 from keras.layers import Flatten, Dense, Dropout
 
+import matplotlib.pyplot as plt
+
 n_epochs = 50
 batch_size = preprocess.batch_size
 
@@ -56,7 +58,7 @@ def test(model, test_ds, base_fn=None):
     predict_results, ground_truth, file_paths = eager_evaluate_xy_pipeline(
         apply_pipeline(model, test_ds), make_dataset=False)
     return {
-        "history": dict(zip(model.metrics_names, eval_results)),
+        "metrics": dict(zip(model.metrics_names, eval_results)),
         "prediction": predict_results,
         "actual": ground_truth,
         "filenames": file_paths}
@@ -129,11 +131,15 @@ def main():
     test_ds = load_base_modeled(base_models.vgg16_label, get_data.test_label)
     model = original_addon(train_ds.element_spec[0].shape[1:])
     # Approximate only running one augmentation repetition through each epoch (see preprocess.augmentation_reps)
-    spe_1 = tf.data.experimental.cardinality(train_ds).numpy()/preprocess.augmentation_reps
-    train(model, n_epochs, batch_size, train_ds.repeat(), valid_ds, steps_per_epoch=spe_1)
-    results_1 = test(model, test_ds)
-    evaluate_results.print_test_results(results_1)
-    evaluate_results.generate_misclass_files(results_1)
+    spe = tf.data.experimental.cardinality(train_ds).numpy()/preprocess.augmentation_reps
+    history = train(model, n_epochs, batch_size, train_ds.repeat(), valid_ds, steps_per_epoch=spe).history
+    results = test(model, test_ds)
+    evaluate_results.print_test_results(results)
+    evaluate_results.generate_misclass_files(results)
+    evaluate_results.training_accuracy_plot(history)
+    evaluate_results.training_loss_plot(history)
+    evaluate_results.confusion_matrix(results)
+    plt.show()
 
 if __name__ == "__main__":
     main()
