@@ -5,6 +5,7 @@ import preprocess
 from preprocess import apply_pipeline, get_preprocessed_dataset
 import base_models
 from base_models import load_base_modeled
+import evaluate_results
 
 import tensorflow as tf
 keras = tf.keras
@@ -40,7 +41,7 @@ def inceptionv3_transfer_model(input_shape):
     return transfer_model(base, addon)
 
 def train(model, epochs, batch_size, train_ds, valid_ds, base_fn=None, steps_per_epoch=None):
-    model.compile(optimizer="rmsprop", loss="binary_crossentropy", metrics=["accuracy"])
+    model.compile(optimizer="rmsprop", loss="binary_crossentropy", metrics=evaluate_results.evaluation_metrics)
     if base_fn is not None:
         train_ds = base_fn(train_ds)
         valid_ds = base_fn(valid_ds)
@@ -59,17 +60,6 @@ def test(model, test_ds, base_fn=None):
         "prediction": predict_results,
         "actual": ground_truth,
         "filenames": file_paths}
-
-def print_test_results(results, threshold=0.5):
-    for k in results["history"]: print(f"{k}: {results['history'][k]}")
-    print(results["prediction"].shape)
-    for i, pred in enumerate(results["prediction"]):
-        fpath = results["filenames"][i]
-        nicename = os.path.join(os.path.basename(os.path.dirname(fpath)), os.path.basename(fpath))
-        pred = results["prediction"][i][0]
-        actual = results["actual"][i][0]
-        correct = (pred < threshold) if (actual < threshold) else (pred >= threshold)
-        print(f"{nicename}\t{pred:.2f}\t{'WRONG' if not correct else ''}")
 
 # Evaluate the lazy pipeline of (inputs, ground truths) now! For input pipelines, we might do this so that:
 #   (a) we only run the full dataset through the base model once, for performance reasons, and
@@ -98,7 +88,7 @@ def eager_evaluate_xy_pipeline(ds, make_dataset=True):
     return ds
 
 # A demo of how our new module layout allows us to easily do transfer learning in a variety of configurations
-def main():
+def three_styles_demo():
     print("Applying the original addon to cached augmentation -> VGG16 output")
     train_ds_1 = load_base_modeled(base_models.vgg16_label, get_data.train_label)
     valid_ds_1 = load_base_modeled(base_models.vgg16_label, get_data.valid_label)
@@ -108,7 +98,7 @@ def main():
     spe_1 = tf.data.experimental.cardinality(train_ds_1).numpy()/preprocess.augmentation_reps
     train(model_1, n_epochs, batch_size, train_ds_1.repeat(), valid_ds_1, steps_per_epoch=spe_1)
     results_1 = test(model_1, test_ds_1)
-    print_test_results(results_1)
+    evaluate_results.print_test_results(results_1)
 
     print("Running VGG16 once at the beginning on the fly")
     base = base_models.vgg16_base((*get_data.image_size, 3))
@@ -121,7 +111,7 @@ def main():
     model_2 = original_addon(train_ds_2.element_spec[0].shape[1:])
     train(model_2, n_epochs, batch_size, train_ds_2, valid_ds_2)
     results_2 = test(model_2, test_ds_2)
-    print_test_results(results_2)
+    evaluate_results.print_test_results(results_2)
 
     print("Running everything at all times")
     model_3 = vgg16_transfer_model((*get_data.image_size, 3))
@@ -130,7 +120,20 @@ def main():
     test_ds_3 = get_preprocessed_dataset(get_data.test_label, shuffle=False)
     train(model_3, n_epochs, batch_size, train_ds_3, valid_ds_3)
     results_3 = test(model_3, test_ds_3)
-    print_test_results(results_3)
+    evaluate_results.print_test_results(results_3)
+
+def main():
+    # Applying the original addon to cached augmentation -> VGG16 output
+    train_ds = load_base_modeled(base_models.vgg16_label, get_data.train_label)
+    valid_ds = load_base_modeled(base_models.vgg16_label, get_data.valid_label)
+    test_ds = load_base_modeled(base_models.vgg16_label, get_data.test_label)
+    model = original_addon(train_ds.element_spec[0].shape[1:])
+    # Approximate only running one augmentation repetition through each epoch (see preprocess.augmentation_reps)
+    spe_1 = tf.data.experimental.cardinality(train_ds).numpy()/preprocess.augmentation_reps
+    train(model, n_epochs, batch_size, train_ds.repeat(), valid_ds, steps_per_epoch=spe_1)
+    results_1 = test(model, test_ds)
+    evaluate_results.print_test_results(results_1)
+    evaluate_results.generate_misclass_files(results_1)
 
 if __name__ == "__main__":
     main()

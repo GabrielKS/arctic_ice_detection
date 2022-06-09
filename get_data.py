@@ -9,7 +9,7 @@ randomseed = 0
 
 input_root = os.path.abspath("../arctic_images")  # Where to find the raw input
 image_size = (150, 150)  # TODO perhaps get this programmatically
-conditions = ("ice", "no_ice")
+conditions = ("no_ice", "ice")  # Index corresponds to desired binary model output (0 or 1)
 input_exts = (".png", ".jpg", ".jpeg")  # Just a basic filter to exclude some non-image files
 
 output_root = os.path.abspath("../models/input")  # Where to put the structured output
@@ -65,7 +65,7 @@ def get_raw_dataset(ds_label, batch_size=32, shuffle=False):
     ds = keras.preprocessing.image_dataset_from_directory(dir,
         labels="inferred",
         label_mode="binary",
-        class_names=tuple(reversed(conditions)),
+        class_names=tuple(conditions),  # To get the order right
         color_mode="rgb",
         image_size=image_size,
         shuffle=shuffle,
