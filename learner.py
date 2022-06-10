@@ -42,19 +42,18 @@ def inceptionv3_transfer_model(input_shape):
     addon = original_addon(base.output_shape[1:])
     return transfer_model(base, addon)
 
-def train(model, epochs, batch_size, train_ds, valid_ds, base_fn=None, steps_per_epoch=None):
+def train(model, epochs, train_ds, valid_ds, base_fn=None, batch_size=None, steps_per_epoch=None, verbose="auto"):
     model.compile(optimizer="rmsprop", loss="binary_crossentropy", metrics=evaluate_results.evaluation_metrics)
     if base_fn is not None:
         train_ds = base_fn(train_ds)
         valid_ds = base_fn(valid_ds)
     return model.fit(train_ds, validation_data=valid_ds, epochs=epochs,
-        batch_size=batch_size, steps_per_epoch=steps_per_epoch)
+        batch_size=batch_size, steps_per_epoch=steps_per_epoch, verbose=verbose)
 
-def test(model, test_ds, base_fn=None):
+def test(model, test_ds, base_fn=None, verbose="auto"):
     if base_fn is not None:
         test_ds = base_fn(test_ds)
-    eval_results = model.evaluate(test_ds, verbose=1)
-    predict_results = model.predict(test_ds, verbose=1)
+    eval_results = model.evaluate(test_ds, verbose=verbose)
     predict_results, ground_truth, file_paths = eager_evaluate_xy_pipeline(
         apply_pipeline(model, test_ds), make_dataset=False)
     return {
@@ -68,20 +67,20 @@ def test(model, test_ds, base_fn=None):
 #   (b) the output of the base model and the labels all correspond to the same random choices
 #       in the augmentation phase.
 # It seems like this should already exist.
-def eager_evaluate_xy_pipeline(ds, make_dataset=True):
+def eager_evaluate_xy_pipeline(ds, make_dataset=True, verbose=False):
     file_paths = ds.file_paths
     x_batches, y_batches = [], []
     batch_size = None
     n_batches = ds.cardinality().numpy()
 
-    print(f"Eagerly evaluating input pipeline in {n_batches} batches:")
+    if verbose: print(f"Eagerly evaluating input pipeline in {n_batches} batches:")
     # It seems we must resort to a loop here. Hopefully the data are batched such that this isn't too bad.
     # Parallelization options are set up where the pipeline is created.
     for i, (x_batch, y_batch) in enumerate(ds):
         x_batches.append(x_batch)
         y_batches.append(y_batch)
         if batch_size is None: batch_size = x_batch.shape[0]
-        print(i, end=("\n" if i == n_batches-1 else ".. "), flush=True)
+        if verbose: print(i, end=("\n" if i == n_batches-1 else ".. "), flush=True)
     x_tensor, y_tensor = tf.concat(x_batches, axis=0), tf.concat(y_batches, axis=0)
     if not make_dataset: return x_tensor, y_tensor, file_paths
     ds = tf.data.Dataset.from_tensor_slices(
@@ -98,7 +97,7 @@ def three_styles_demo():
     model_1 = original_addon(train_ds_1.element_spec[0].shape[1:])
     # Approximate only running one augmentation repetition through each epoch (see preprocess.augmentation_reps)
     spe_1 = tf.data.experimental.cardinality(train_ds_1).numpy()/preprocess.augmentation_reps
-    train(model_1, n_epochs, batch_size, train_ds_1.repeat(), valid_ds_1, steps_per_epoch=spe_1)
+    train(model_1, n_epochs, train_ds_1.repeat(), valid_ds_1, batch_size=batch_size, steps_per_epoch=spe_1)
     results_1 = test(model_1, test_ds_1)
     evaluate_results.print_test_results(results_1)
 
@@ -111,7 +110,7 @@ def three_styles_demo():
     valid_ds_2 = otf_pipeline(get_preprocessed_dataset(get_data.valid_label, shuffle=True))
     test_ds_2 = otf_pipeline(get_preprocessed_dataset(get_data.test_label, shuffle=False))
     model_2 = original_addon(train_ds_2.element_spec[0].shape[1:])
-    train(model_2, n_epochs, batch_size, train_ds_2, valid_ds_2)
+    train(model_2, n_epochs, train_ds_2, valid_ds_2, batch_size=batch_size)
     results_2 = test(model_2, test_ds_2)
     evaluate_results.print_test_results(results_2)
 
@@ -120,7 +119,7 @@ def three_styles_demo():
     train_ds_3 = get_preprocessed_dataset(get_data.train_label, to_augment=True, shuffle=True)
     valid_ds_3 = get_preprocessed_dataset(get_data.valid_label, shuffle=True)
     test_ds_3 = get_preprocessed_dataset(get_data.test_label, shuffle=False)
-    train(model_3, n_epochs, batch_size, train_ds_3, valid_ds_3)
+    train(model_3, n_epochs, train_ds_3, valid_ds_3, batch_size=batch_size)
     results_3 = test(model_3, test_ds_3)
     evaluate_results.print_test_results(results_3)
 
@@ -132,9 +131,10 @@ def main():
     model = original_addon(train_ds.element_spec[0].shape[1:])
     # Approximate only running one augmentation repetition through each epoch (see preprocess.augmentation_reps)
     spe = tf.data.experimental.cardinality(train_ds).numpy()/preprocess.augmentation_reps
-    history = train(model, n_epochs, batch_size, train_ds.repeat(), valid_ds, steps_per_epoch=spe).history
+    history = train(model, n_epochs, train_ds.repeat(), valid_ds, batch_size=batch_size, steps_per_epoch=spe).history
     results = test(model, test_ds)
     evaluate_results.print_test_results(results)
+    evaluate_results.print_misclass(results)
     evaluate_results.generate_misclass_files(results)
     evaluate_results.training_accuracy_plot(history)
     evaluate_results.training_loss_plot(history)
