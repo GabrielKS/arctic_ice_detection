@@ -76,7 +76,7 @@ def confusion_matrix(results, to_file=True, model_label="default", ax=None):
     if ax is None: _,ax = plt.subplots()
     predicted_binary_num = prob_to_binary(results["prediction"], numeric=True)
     cmat = sklearn.metrics.confusion_matrix(results["actual"], predicted_binary_num)
-    labels = list(reversed(get_data.conditions))  # sklearn interprets categories reversedly, it seems
+    labels = list(get_data.conditions)
     cmat = pd.DataFrame(cmat, index=labels, columns=labels)
     # print(cmat)
     

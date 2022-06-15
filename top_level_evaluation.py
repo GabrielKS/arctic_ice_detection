@@ -44,3 +44,4 @@ def evaluate_hyperparameters(model_fn, data, n_epochs, batch_size, steps_per_epo
     evaluate_results.print_test_results(results)
     evaluation_figs(history, results, label)
     evaluate_results.generate_misclass_files(results, model_label=label)
+    return history, results
