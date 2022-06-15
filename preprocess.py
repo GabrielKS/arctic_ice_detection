@@ -13,12 +13,12 @@ batch_size = 16
 preprocessed_root = os.path.abspath("../models/preprocessed")
 
 # Apply a Sequential of pipeline steps to a Dataset that originated with a set of files, preserving file_paths
-def apply_pipeline(pipeline, ds):
-    file_paths = ds.file_paths
+def apply_pipeline(pipeline, ds, preserve_file_paths = True):
+    if preserve_file_paths: file_paths = ds.file_paths
     # Let Tensorflow parallelize for us.
     # This leads to some weirdness with the status messages but produces a significant speedup.
     ds = ds.map(lambda x, y: (pipeline(x), y), num_parallel_calls=tf.data.AUTOTUNE)
-    ds.file_paths = file_paths
+    if preserve_file_paths: ds.file_paths = file_paths
     return ds
 
 def scale(ds):
@@ -37,7 +37,7 @@ def augment(ds):
 def get_preprocessed_dataset(label, to_augment=False, shuffle=False):
     ds = get_data.get_raw_dataset(label, batch_size=batch_size, shuffle=shuffle)
     file_paths = ds.file_paths
-    ds = scale(ds)
+    # ds = scale(ds)  # Nah, let's do this later on a per-model basis
     if to_augment: ds = augment(ds)
     ds.file_paths = file_paths
     return ds

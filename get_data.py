@@ -8,7 +8,7 @@ keras = tf.keras
 randomseed = 0
 
 input_root = os.path.abspath("../arctic_images")  # Where to find the raw input
-image_size = (150, 150)  # TODO perhaps get this programmatically
+image_size = (279, 500)  # TODO perhaps get this programmatically. (height, width) for some reason
 conditions = ("no_ice", "ice")  # Index corresponds to desired binary model output (0 or 1)
 input_exts = (".png", ".jpg", ".jpeg")  # Just a basic filter to exclude some non-image files
 
