@@ -42,13 +42,20 @@ def inceptionv3_transfer_model(input_shape):
     addon = original_addon(base.output_shape[1:])
     return transfer_model(base, addon)
 
-def train(model, epochs, train_ds, valid_ds, base_fn=None, batch_size=None, steps_per_epoch=None, verbose="auto"):
+class CallbackMoreDetails(keras.callbacks.Callback):
+    # def on_train_begin(self, logs=None):
+    #     self.model.optimizer.lr.assign(self.model.optimizer.lr.read_value()/10)
+
+    def on_epoch_end(self, epoch, logs=None):
+        print(f"\n{self.model.optimizer.lr.read_value()}")
+
+def train(model, epochs, train_ds, valid_ds, base_fn=None, batch_size=None, steps_per_epoch=None, verbose="auto", callbacks=[CallbackMoreDetails()]):
     model.compile(optimizer="rmsprop", loss="binary_crossentropy", metrics=evaluate_results.evaluation_metrics)
     if base_fn is not None:
         train_ds = base_fn(train_ds)
         valid_ds = base_fn(valid_ds)
     return model.fit(train_ds, validation_data=valid_ds, epochs=epochs,
-        batch_size=batch_size, steps_per_epoch=steps_per_epoch, verbose=verbose)
+        batch_size=batch_size, steps_per_epoch=steps_per_epoch, verbose=verbose, callbacks=callbacks)
 
 def test(model, test_ds, base_fn=None, verbose="auto"):
     if base_fn is not None:
