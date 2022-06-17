@@ -1,7 +1,9 @@
 import os
+import time
 
 import get_data
 from get_data import reset_dir
+from evaluate_results import format_time_estimate, format_finished_msg
 
 import tensorflow as tf
 keras = tf.keras
@@ -11,6 +13,8 @@ augmentation_reps = 10
 batch_size = 16
 
 preprocessed_root = os.path.abspath("../models/preprocessed")
+
+compression = None  # GZIP compression saves significant space but takes significant time
 
 # Apply a Sequential of pipeline steps to a Dataset that originated with a set of files, preserving file_paths
 def apply_pipeline(pipeline, ds, preserve_file_paths = True):
@@ -52,31 +56,43 @@ def load_file_paths(root, label):
             map(lambda s: s.rstrip(), f.readlines())))  # Strip trailing newlines
     return file_paths
 
-def preprocess_dataset(label, shuffle, to_augment, reps=1):
+def preprocess_dataset(label, shuffle, to_augment, reps=1, t_per_batch=None):
     ds = get_preprocessed_dataset(label, to_augment, shuffle)
     file_paths = ds.file_paths
     ds = ds.repeat(reps)
     ds.file_paths = file_paths
+    n_batches = tf.data.experimental.cardinality(ds).numpy()
+
+    status = f"Preprocessing on {n_batches} batches. "
+    status += format_time_estimate(None if t_per_batch is None else t_per_batch*n_batches)
+    print(status)
+    t0 = time.time()
+
     save_preprocessed(ds, label)
+    
+    t1 = time.time()
+    print(format_finished_msg(t1-t0))
+    return (t1-t0)/n_batches
 
 def save_preprocessed(ds, label):
     save_file_paths(preprocessed_root, label, ds.file_paths)
-    tf.data.experimental.save(ds, os.path.join(preprocessed_root, label))
+    tf.data.experimental.save(ds, os.path.join(preprocessed_root, label), compression=compression)
 
 def load_preprocessed(label):
-    ds = tf.data.experimental.load(os.path.join(preprocessed_root, label))
+    ds = tf.data.experimental.load(os.path.join(preprocessed_root, label), compression=compression)
     ds.file_paths = load_file_paths(preprocessed_root, label)
     return ds
 
 def main():
     print("Deleting previous results…")
     reset_dir(preprocessed_root)
-    print("Preprocessing training data…")
-    preprocess_dataset(get_data.train_label, shuffle=True, to_augment=True, reps=augmentation_reps)
-    print("Preprocessing validation data…")
-    preprocess_dataset(get_data.valid_label, shuffle=True, to_augment=False)
     print("Preprocessing test data…")
-    preprocess_dataset(get_data.test_label,  shuffle=False, to_augment=False)
+    t_per_batch = preprocess_dataset(get_data.test_label,  shuffle=False, to_augment=False)
+    print("Preprocessing validation data…")
+    t_per_batch += preprocess_dataset(get_data.valid_label, shuffle=True, to_augment=False, t_per_batch=t_per_batch)
+    t_per_batch /= 2
+    print("Preprocessing training data…")
+    preprocess_dataset(get_data.train_label, shuffle=True, to_augment=True, reps=augmentation_reps, t_per_batch=t_per_batch)
     print("Done preprocessing.")
 
 if __name__ == "__main__":

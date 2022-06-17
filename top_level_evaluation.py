@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 import time
 
 import evaluate_results
+from evaluate_results import format_time_estimate, format_finished_msg
 import learner
+
+import tensorflow as tf
 
 def hyperparameters_to_string(model_name, n_epochs, batch_size, steps_per_epoch):
     params = {"model": model_name, "epochs": n_epochs, "batch-size": batch_size, "steps-per-epoch": steps_per_epoch}
@@ -27,20 +30,34 @@ def evaluate_hyperparameters(model_fn, data, n_epochs, batch_size, steps_per_epo
         this_test_ds.file_paths = test_ds.file_paths
     else: this_test_ds = test_ds
 
-    t0 = time.time()
+    n_batches = tf.data.experimental.cardinality(this_test_ds).numpy()
+    t_per_batch = None
+
+    t0_overall = time.time()
     for i in range(n_samples):
         model = model_fn(input_shape)  # Recreate the model each time for independent samples
-        if print_samples: print(f"{label} ROUND {i}/{n_samples}")
+
+        if print_samples:
+            status = f"{label} ROUND {i}/{n_samples}. "
+            status += format_time_estimate(None if t_per_batch is None else t_per_batch*n_batches)
+            print(status)
+        t0 = time.time()
+
         this_history = learner.train(model, n_epochs, train_ds.repeat(), valid_ds,
             steps_per_epoch=steps_per_epoch, verbose=verbose).history
         history.append(this_history)
         this_results = learner.test(model, this_test_ds, verbose=verbose)
         results.append(this_results)
-        # evaluation_figs(this_history, this_results, label+" "+str(i))
-    t1 = time.time()
+        
+        t1 = time.time()
+        if t_per_batch is None: t_per_batch = (t1-t0)/n_batches
+        else: t_per_batch = (t_per_batch+(t1-t0)/n_batches)/2
+        if print_samples: print(format_finished_msg(t1-t0))
+    t1_overall = time.time()
+
     history = evaluate_results.combine_history(history)
     results = evaluate_results.combine_results(results)
-    print(f"{label} ({(t1-t0):.2f}s)")
+    print(f"{label} ({(t1_overall-t0_overall):.2f}s)")
     evaluate_results.print_test_results(results)
     evaluation_figs(history, results, label)
     evaluate_results.generate_misclass_files(results, model_label=label)

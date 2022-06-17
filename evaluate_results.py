@@ -1,5 +1,6 @@
 import os
 import shutil
+import datetime
 
 import get_data
 from get_data import reset_dir
@@ -103,3 +104,16 @@ def combine_results(resultses):
         combined_results[k] = np.concatenate([np.array(r[k]) for r in resultses])
         # combined_results[k] = list(itertools.chain.from_iterable([r[k] for r in resultses]))
     return combined_results
+
+def format_datetime(datetime):
+    return f"{datetime:%I:%M:%S%p}"
+
+def format_time_estimate(duration=None):
+    status = f"Starting at {format_datetime(datetime.datetime.now())}"
+    if duration is not None:
+        est_done = datetime.datetime.now()+datetime.timedelta(seconds=duration)
+        status += f"; estimated time {duration:.2f}s to finish at {format_datetime(est_done)}"
+    return status+"…"
+
+def format_finished_msg(duration):
+    return f"Finished in {duration:.2f}s at {format_datetime(datetime.datetime.now())}."

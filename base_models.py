@@ -1,8 +1,10 @@
 import os
+import time
 
 import get_data
 from get_data import reset_dir
 from preprocess import apply_pipeline, load_preprocessed, save_file_paths, load_file_paths
+from evaluate_results import format_time_estimate, format_finished_msg
 
 import tensorflow as tf
 keras = tf.keras
@@ -34,11 +36,21 @@ inceptionv3_base = lambda input_shape: builtin_base_with_preprocess(input_shape,
 xception_base = lambda input_shape: builtin_base_with_preprocess(input_shape, (299, 299, 3),
     tf.keras.applications.xception.preprocess_input, keras.applications.xception.Xception)
 
-def base_model(model_label, split_label, model):
+def base_model(model_label, split_label, model, t_per_batch=None):
     ds = load_preprocessed(split_label)
-    print(f"Predicting on {tf.data.experimental.cardinality(ds)} batches")
+    n_batches = tf.data.experimental.cardinality(ds).numpy()
     ds = apply_pipeline(model, ds)
+
+    status = f"Predicting on {n_batches} batches. "
+    status += format_time_estimate(None if t_per_batch is None else t_per_batch*n_batches)
+    print(status)
+    t0 = time.time()
+
     save_base_modeled(ds, model_label, split_label)
+    
+    t1 = time.time()
+    print(format_finished_msg(t1-t0))
+    return (t1-t0)/n_batches
 
 def save_base_modeled(ds, model_label, split_label):
     tf.data.experimental.save(ds, os.path.join(base_modeled_root, model_label, split_label))
@@ -61,11 +73,12 @@ def main():
         print("Prerunning model "+label)
         model = model_fn(input_shape)
         print(f"Test data…")
-        base_model(label, get_data.test_label, model)
+        t_per_batch = base_model(label, get_data.test_label, model)
         print("Validation data…")
-        base_model(label, get_data.valid_label, model)
+        t_per_batch += base_model(label, get_data.valid_label, model, t_per_batch)
+        t_per_batch /= 2
         print("Training data…")
-        base_model(label, get_data.train_label, model)
+        base_model(label, get_data.train_label, model, t_per_batch)
         print("Done with "+label)
 
 if __name__ == "__main__":
