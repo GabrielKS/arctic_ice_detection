@@ -1,9 +1,9 @@
 import os
 import time
 
-import get_data
-from get_data import reset_dir
-from evaluate_results import format_time_estimate, format_finished_msg
+import pipeline.get_data as get_data
+from pipeline.get_data import reset_dir
+from pipeline.evaluate_results import format_time_estimate, format_finished_msg
 
 import tensorflow as tf
 keras = tf.keras

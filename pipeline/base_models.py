@@ -1,10 +1,10 @@
 import os
 import time
 
-import get_data
-from get_data import reset_dir
-from preprocess import apply_pipeline, load_preprocessed, save_file_paths, load_file_paths
-from evaluate_results import format_time_estimate, format_finished_msg
+import pipeline.get_data as get_data
+from pipeline.get_data import reset_dir
+from pipeline.preprocess import apply_pipeline, load_preprocessed, save_file_paths, load_file_paths
+from pipeline.evaluate_results import format_time_estimate, format_finished_msg
 
 import tensorflow as tf
 keras = tf.keras

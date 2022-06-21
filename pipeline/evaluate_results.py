@@ -2,8 +2,8 @@ import os
 import shutil
 import datetime
 
-import get_data
-from get_data import reset_dir
+import pipeline.get_data as get_data
+from pipeline.get_data import reset_dir
 
 import sklearn
 

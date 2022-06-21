@@ -1,11 +1,9 @@
-import os
-
-import get_data
-import preprocess
-from preprocess import apply_pipeline, get_preprocessed_dataset
-import base_models
-from base_models import load_base_modeled
-import evaluate_results
+import pipeline.get_data as get_data
+import pipeline.preprocess as preprocess
+from pipeline.preprocess import apply_pipeline, get_preprocessed_dataset
+import pipeline.base_models as base_models
+from pipeline.base_models import load_base_modeled
+import pipeline.evaluate_results as evaluate_results
 
 import tensorflow as tf
 keras = tf.keras
