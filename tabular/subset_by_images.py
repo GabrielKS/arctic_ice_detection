@@ -48,7 +48,10 @@ def main():
             # sliced.to_netcdf(path=f"../temp/sliced_{boat}_{i:04d}.nc")
             sliceds.append(sliced)
         print("Concatting...")
-        sliced_combined = xr.concat(sliceds, dim="time")
+        sliced_combined = xr.concat(sliceds, dim="time")  # Is quite fast but leads to duplicate values from overlapping ranges
+        # sliced_combined = xr.merge(sliceds)  # Would get rid of duplicate values but kills our memory performance
+        print("Deduplicating...")
+        sliced_combined = sliced_combined.drop_duplicates("time")  # Seems to work fine?
         print("Saving...")
         # Due to lazy loading, most of the time is spent here:
         sliced_combined.to_netcdf(path=f"../tabular/excerpts/excerpt_{boat}.nc")
