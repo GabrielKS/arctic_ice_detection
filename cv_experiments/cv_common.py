@@ -22,9 +22,9 @@ def get_image(filename, colormode=cv2.IMREAD_GRAYSCALE):
     img = cv2.imread(filename, colormode)
     return undistort(img, "large" if img.shape[0] > 1000 else "small")
 
-def load_dir(input_dir, colormode=cv2.IMREAD_GRAYSCALE):
+def load_dir(input_dir, colormode=cv2.IMREAD_GRAYSCALE):  # It's lazy -- only actually loads images when they're called for
     image_paths = sorted(f.path for f in os.scandir(input_dir) if f.is_file() and os.path.basename(f.path)[0] != '.')
-    sources = list(zip(map(lambda f: get_image(f, colormode=colormode), image_paths), map(lambda f: os.path.basename(f), image_paths)))
+    sources = zip(map(lambda f: get_image(f, colormode=colormode), image_paths), map(lambda f: os.path.basename(f), image_paths))
     return sources
 
 def tile(images, twidth, theight):
