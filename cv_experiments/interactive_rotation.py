@@ -16,20 +16,9 @@ input_dir = os.path.abspath("../representatives/rotation")
 transformed_suffix = " blurred"
 sources = None
 
-def imscale(img, scale):
-    return cv2.resize(img, (int(img.shape[1]*scale), int(img.shape[0]*scale)))
-
-def get_image(filename):
-    img = cv2.imread(filename, 0)
-    large = img.shape[0] > 1000
-    img = cc.undistort(img, "large" if large else "small")
-    if large: img = imscale(img, 0.58)
-    return img
-
 def get_images():
     global sources
-    image_paths = sorted(f.path for f in os.scandir(input_dir) if f.is_file() and os.path.basename(f.path)[0] != '.')
-    sources = list(zip(map(get_image, image_paths), map(lambda f: os.path.basename(f), image_paths)))
+    sources = [(cc.imscale(img, 0.58) if img.shape[0] > 1000 else img, name) for img, name in cc.load_dir(input_dir)]
 
 def mouser(event, x, y, flags, param):
     angle = (x-200)/400*(np.pi/2)
@@ -51,7 +40,7 @@ def rotate_rect_dims(width, height, angle):  # Inspired by https://stackoverflow
 def rotate_crop(img, angle):
     height, width = img.shape[:2]
     sf = min(width, height)/np.sqrt(width**2+height**2)
-    img = imscale(img, 1/sf)
+    img = cc.imscale(img, 1/sf)
     height, width = img.shape[:2]
     rwidth, rheight = rotate_rect_dims(width, height, angle)
     m = cv2.getRotationMatrix2D((width//2, height//2), angle*180/np.pi, sf)
