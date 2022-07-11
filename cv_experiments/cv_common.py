@@ -5,7 +5,8 @@ import os
 focal_length = 10
 distCoeffs = {
         "small": np.array([-3.31e-4, 1.24e-8, 0, 0]),
-        "large": np.array([-4.18e-5,  1.78e-9, 0, 0])
+        "large": np.array([-4.18e-5,  1.78e-9, 0, 0]),
+        "new": np.array([-5.35e-4, 3.05e-7, 0, 0])
     }
 
 def undistort(img, cam_id):
