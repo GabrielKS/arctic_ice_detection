@@ -13,10 +13,11 @@ import copy
 import cv_experiments.cv_common as cc
 
 background_label = "water"  # What to call things that aren't part of a shape
-# label2value = {"water": 0, "sky": 100, "ice": 200, "other": 255}  # Good for humans
-# label2value = {"water": 0, "sky": 255, "ice": 63, "other": 127}  # Good for undistortion tuning
-label2value = {"water": 0, "sky": 1, "ice": 2, "other": 3}  # Good for fastai
+# label2value = {"water": 0, "sky": 100, "ice": 200, "other": 255, "none": 230}  # Good for humans
+# label2value = {"water": 0, "sky": 255, "ice": 63, "other": 127, "none": 191}  # Good for undistortion tuning
+label2value = {"water": 0, "sky": 1, "ice": 2, "other": 3, "none": 4}  # Good for fastai
 round_thresh = 5  # If a value is within this many pixels of an edge of the image, snap it to that edge
+do_undistort = False  # Whether to perform undistortion here
 
 input_dirs = [os.path.abspath("../arctic_images_original_2/no_ice"), os.path.abspath("../arctic_images_original_2/ice")]
 segmap_output = os.path.abspath("../arctic_images_original_2/segmaps")
@@ -56,9 +57,11 @@ def process_one(path_in, path_segmap_out, path_seginput_out):
     classes, _ = shapes_to_label(img.shape, shapes, label2value)
     classes = np.where(classes == 0, label2value[background_label], classes).astype(np.uint8)
     validate(shapes, classes, path_in)
-    classes = cc.undistort(classes, "new")
+    if do_undistort:
+        img = cc.undistort(img, "new")
+        classes = cc.undistort(classes, "new")
     cv2.imwrite(path_segmap_out, classes)
-    cv2.imwrite(path_seginput_out, cc.undistort(cv2.cvtColor(img, cv2.COLOR_RGB2BGR), "new"))
+    cv2.imwrite(path_seginput_out, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
 def main():
     jsons = sorted(f.path for input_dir in input_dirs
