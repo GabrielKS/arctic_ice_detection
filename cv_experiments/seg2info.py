@@ -6,9 +6,10 @@ sensible defaults throughout.
 
 import os
 import cv2
-import matplotlib
+import matplotlib.cm
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import itertools
 import copy
 
@@ -36,28 +37,32 @@ class Seg2Info:
 
         # Various properties of the physical configuration of the camera
         self.cam_props = {
-            "camera_height": 5.,
-            "horiz_fov": 98.,
+            "camera_height": 2.2,  # Previously 5, but 2.2 is more accurate for my configuration
+            "horiz_fov": 98.0,
             "vert_fov": 54.5,
+            # The image, pre-undistortion, has a vertical field of view of vert_fov.
+            # Undistortion shrinks the middle of the image by dist_factor, resulting in a greater apparent vertical field of view.
+            "dist_factor": 1.19
         }
         self.cam_props.update(camera_props)
         if "horizon_distance" not in self.cam_props: self.cam_props["horizon_distance"] = 3570.*np.sqrt(self.cam_props["camera_height"])
-        if "near_distance" not in self.cam_props: self.cam_props["near_distance"] = np.tan(np.deg2rad(90-self.cam_props["vert_fov"]))*self.cam_props["camera_height"]
+        if "near_distance" not in self.cam_props: self.cam_props["near_distance"] = np.tan(np.arctan(self.cam_props["horizon_distance"]/self.cam_props["camera_height"]) - 
+            np.deg2rad(self.cam_props["vert_fov"]*self.cam_props["dist_factor"]))*self.cam_props["camera_height"]
 
         # Various properties of the desired output
         self.out_props = {
             "width": 500,
             "height": 279,
             "t_range": self.cam_props["horiz_fov"]*1.1,
-            "min_distance": 3,
-            "max_distance": 30000
+            "min_distance": 2,
+            "max_distance": 20000
         }
         self.out_props.update(output_props)
 
 
     # INPUT convenience functions
     @staticmethod
-    def load_dirs(seginput_path, segmap_path, segmap_ext = ".png"):
+    def load_dirs(seginput_path, segmap_path, segmap_ext = ".png", sort_fn = lambda image: image["name"]):
         """Load original images and masks from directories into a dictionary structure"""
         input_exts = (".png", ".jpg", ".jpeg")
         images = []
@@ -66,6 +71,7 @@ class Seg2Info:
             name = os.path.basename(path)
             images.append({"name": name, "seginput": cv2.imread(os.path.join(seginput_path, path)), "segmap":
                 cv2.imread(os.path.join(segmap_path, os.path.splitext(name)[0]+segmap_ext), cv2.IMREAD_GRAYSCALE)})
+        if sort_fn is not None: images.sort(key=sort_fn)
         return images
 
 
@@ -121,27 +127,36 @@ class Seg2Info:
 
     def undistort(self, img, interpolation_method=cv2.INTER_LINEAR):
         """Undistort an image"""
-        return self.clamp(cc.undistort(img, "new", interpolation_method))
+        return self.clamp(cc.undistort(img, "new", interpolation_method, self.proc_props["rest_value"]))
 
-    def sky_edge(self, img):
+    def sky_edge(self, img, rest_thresh=0.5):
         """Find the sky edge by searching down each column for the transition from no water/ice to some water/ice.\
             Do this with a bunch of different samples, throw out the bad ones if possible, and average
         """
         oceanness = np.max([img[:,:,self.proc_props["four_values"].index("water")], img[:,:,self.proc_props["four_values"].index("ice")]], axis=0)
         # Enforce monotonicity (took me a while to realize the lack of this was causing problems...)
         oceanness = np.maximum.accumulate(oceanness, axis=0)
+        isrest = img[:,:,self.proc_props["four_values"].index("rest")] > rest_thresh
 
         samples = np.stack([np.apply_along_axis(np.searchsorted, 0, oceanness, x, side="right")
             for x in self.proc_props["transition_sample_locs"]], axis=-1)
+        # If the pixel immediately above us is `rest`, we haven't actually found anything
+        y = np.clip(samples.T-self.proc_props["upscale_factor"], 0, None)
+        samples = np.where(~isrest[y, np.arange(img.shape[1])].T, samples, np.nan)
+        # If we hit a bounds, we haven't actually found anything
         filtered_samples = np.where(((samples > 0) & (samples < img.shape[0])), samples, np.nan)
         result = np.mean(filtered_samples, axis=-1)
+        # Report np.nan if anything is bordering `rest`; report the bounds if anything is out of bounds
         return np.where(np.isnan(result), np.min(samples, axis=-1), result)
-
+    
+    # We need to filter out NaNs before passing to fit
     def find_horizon(self, img):
         """Find a horizon as the line of best fit of the sky_edge"""
-        edge = self.sky_edge(img)
         width = img.shape[1]
-        return np.polynomial.Polynomial.fit(np.arange(width)-width//2, edge, 1).convert()
+        x = np.arange(width)-width//2
+        y = self.sky_edge(img)
+        valids = ~np.isnan(x) & ~np.isnan(y)
+        return np.polynomial.Polynomial.fit(x[valids], y[valids], 1).convert()
 
     def rotate_image(self, img, line, interpolation_method=cv2.INTER_LINEAR):
         """Rotate an image to make the given line horizontal without changing its y-intercept"""
@@ -156,6 +171,17 @@ class Seg2Info:
             flags=interpolation_method, borderValue=self.proc_props["rest_value"])
         return self.clamp(result), scale, height
 
+    @staticmethod
+    def interpolate_sky_edge(edge, line):
+        padded = np.zeros(len(edge)+2, dtype=edge.dtype)
+        intercept, slope = line
+        padded[1:-1] = edge
+        padded[0] = -slope*len(edge)/2+intercept
+        padded[-1] = slope*len(edge)/2+intercept
+        interpolated = pd.Series(padded).interpolate()
+        return interpolated.to_numpy()[1:-1]
+    
+    # Identical to original except added interpolation line
     def adjust_and_crop(self, img, line, height, interpolation_method=cv2.INTER_LINEAR):
         """After an image has been rotated so the horizon is roughly horizontal, this translates\
             each column of pixels to make the horizon perfectly flat, then moves the horizon so it is\
@@ -168,6 +194,7 @@ class Seg2Info:
         # Search search_range pixels up and down of the intercept for the [ice and water] to sky edge
         search_range = int(0.05*height)
         new_edge = self.sky_edge(img[(intercept-search_range):(intercept+search_range), :])+(intercept-search_range)
+        new_edge = Seg2Info.interpolate_sky_edge(new_edge, line)
         delta = buffer_px-new_edge
         orig_height, width = img.shape[:2]
         mapx = np.tile(np.arange(width), (orig_height, 1))
@@ -366,7 +393,7 @@ class Seg2Info:
     def plot_mask(self, ax, image, map_key="segmap", title=None):
         """Detect what format a mask is in and plot it accordingly"""
         if title is None: title = self.image2title(image)
-        # ax.set_title(title)
+        ax.set_title(title)
         img = image[map_key]
         if img.dtype.kind == 'f':  # Continuous
             if img.ndim > 2:  # New encoding: four-channel one-hot-esque
@@ -382,11 +409,11 @@ class Seg2Info:
         else:  # Categorical
             ax.imshow(img, cmap="tab20", vmax=4, interpolation="none")
 
-    def plot_line(self, ax, image, map_key="segmap", line_key="line"):
+    def plot_line(self, ax, image, map_key="segmap", line_key="line", title=None):
         """Plot a mask with a line on it"""
         width = image[map_key].shape[1]
         intercept,slope = image[line_key]
-        self.plot_mask(ax, image, map_key=map_key)
+        self.plot_mask(ax, image, map_key=map_key, title=title)
         ax.plot((0, width), (intercept-slope*width//2, intercept+slope*width//2), "--", color="#FFFF00", linewidth=2.5)
 
     @staticmethod
@@ -414,8 +441,9 @@ class Seg2Info:
         counter = itertools.count()
         self.plot_all(arr, lambda ax,img: self.plot_mask(ax, {"img": img, "name": names[next(counter)]}, map_key="img"), adjust_fn)
 
-    def plot_mat(self, mat, ax=plt.gca()):
+    def plot_mat(self, mat, ax=None):
         """Convenience function to plot a single image array"""
+        if ax is None: ax = plt.gca()  # Evaluate on invocation!
         self.plot_mask(ax, {"img": mat}, "img", "")
 
     def log_minor_ticks(self, d0, d1):
