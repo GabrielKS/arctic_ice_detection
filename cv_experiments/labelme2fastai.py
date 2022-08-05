@@ -13,13 +13,13 @@ import copy
 import cv_experiments.cv_common as cc
 
 background_label = "water"  # What to call things that aren't part of a shape
-# label2value = {"water": 0, "sky": 100, "ice": 200, "other": 50, "none": 255}  # Good for humans
-# label2value = {"water": 0, "sky": 255, "ice": 63, "other": 127, "none": 191}  # Good for undistortion tuning
-label2value = {"water": 0, "sky": 1, "ice": 2, "other": 3, "none": 4}  # Good for fastai
+# label2value = {"water": 0, "sky": 100, "ice": 200, "other": 50}  # Good for humans
+# label2value = {"water": 0, "sky": 255, "ice": 63, "other": 127}  # Good for undistortion tuning
+label2value = {"water": 0, "sky": 1, "ice": 2, "other": 3}  # Good for fastai
 round_thresh = 5  # If a value is within this many pixels of an edge of the image, snap it to that edge
 do_undistort = False  # Whether to perform undistortion here
 
-input_dirs = [os.path.abspath("../arctic_images_original_2/no_ice"), os.path.abspath("../arctic_images_original_2/ice")]
+input_dirs = [os.path.abspath("../arctic_images_original_2/no_ice"), os.path.abspath("../arctic_images_original_2/ice_on_horizon"), os.path.abspath("../arctic_images_original_2/ice")]
 segmap_output = os.path.abspath("../arctic_images_original_2/segmaps")
 seginput_output = os.path.abspath("../arctic_images_original_2/seginput")
 

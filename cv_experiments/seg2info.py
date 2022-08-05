@@ -62,15 +62,20 @@ class Seg2Info:
 
     # INPUT convenience functions
     @staticmethod
-    def load_dirs(seginput_path, segmap_path, segmap_ext = ".png", sort_fn = lambda image: image["name"]):
+    def load_dirs(seginput_path, segmap_path, segmap_ext = ".png", filter_fn = None, sort_fn = lambda image: image["name"], max_n = None):
         """Load original images and masks from directories into a dictionary structure"""
         input_exts = (".png", ".jpg", ".jpeg")
         images = []
-        for path in os.listdir(seginput_path):
-            if not path.endswith(input_exts): continue
+        for i, path in enumerate(os.listdir(seginput_path)):
+            if not os.path.exists(os.path.join(seginput_path, path)): continue
             name = os.path.basename(path)
+            this_segmap_path = os.path.join(segmap_path, os.path.splitext(name)[0]+segmap_ext)
+            if not os.path.exists(this_segmap_path): continue  # Skip silently if either file doesn't exist
+            if not path.endswith(input_exts): continue
+            if filter_fn is not None and not filter_fn(path): continue
             images.append({"name": name, "seginput": cv2.imread(os.path.join(seginput_path, path)), "segmap":
-                cv2.imread(os.path.join(segmap_path, os.path.splitext(name)[0]+segmap_ext), cv2.IMREAD_GRAYSCALE)})
+                cv2.imread(this_segmap_path, cv2.IMREAD_GRAYSCALE)})
+            if max_n is not None and i >= max_n: break
         if sort_fn is not None: images.sort(key=sort_fn)
         return images
 
@@ -88,12 +93,11 @@ class Seg2Info:
         results = []
         for image in images:
             result = fn(*[image[k] for k in src_key]) if (type(src_key) == list) else fn(image[src_key])
-            if dest_key is None: results.append(result)
-            else:
-                if type(dest_key) == list:
-                    for i,k in enumerate(dest_key): image[k] = result[i]
-                else: image[dest_key] = result
-        if dest_key is None: return results
+            results.append(result)  # Might as well return the results whether we have a dest_key or not
+            if type(dest_key) == list:
+                for i,k in enumerate(dest_key): image[k] = result[i]
+            else: image[dest_key] = result
+        return results
 
     def clamp(self, data):
         """Restrict each pixel to the valid range"""
@@ -296,8 +300,8 @@ class Seg2Info:
         points_real_to_camera = [
             ((-spread*horizon_distance, horizon_distance), (0,     0,    )),
             (( spread*horizon_distance, horizon_distance), (width, 0,    )),
-            ((-spread*near_distance,    near_distance   ), (0,     height)),
-            (( spread*near_distance,    near_distance   ), (width, height)),
+            ((-spread*near_distance,    near_distance   ), (0,     height*scale)),
+            (( spread*near_distance,    near_distance   ), (width, height*scale)),
         ]
         src_points, dst_points = zip(*points_real_to_camera)
         mat = cv2.getPerspectiveTransform(np.float32(src_points), np.float32(dst_points))
@@ -415,6 +419,7 @@ class Seg2Info:
         intercept,slope = image[line_key]
         self.plot_mask(ax, image, map_key=map_key, title=title)
         ax.plot((0, width), (intercept-slope*width//2, intercept+slope*width//2), "--", color="#FFFF00", linewidth=2.5)
+        # ax.plot((0, width), (intercept-slope*width//2, intercept+slope*width//2), color="#FFFF00", linewidth=8)
 
     @staticmethod
     def plot_all(images, plot_fn, adjust_fn=None, cols=3, size=5):
